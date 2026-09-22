@@ -1,0 +1,19 @@
+# Changes here will be overwritten by Copier.
+_commit: 1.11.15
+_src_path: gh:pawamoy/copier-uv
+author_email: dev@pawamoy.fr
+author_fullname: Timothée Mazzucotelli
+author_username: pawamoy
+copyright_date: '2026'
+copyright_holder: Timothée Mazzucotelli
+copyright_holder_email: dev@pawamoy.fr
+copyright_license: ISC
+project_description: Overview of what you achieved.
+project_name: iseewhatyoudid
+python_package_command_line_name: iseewhatyoudid
+python_package_distribution_name: iseewhatyoudid
+python_package_import_name: iseewhatyoudid
+repository_name: iseewhatyoudid
+repository_namespace: pawamoy
+repository_provider: github.com
+
