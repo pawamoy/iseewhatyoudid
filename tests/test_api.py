@@ -1,3 +1,21 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 """Tests for our own API exposition."""
 
 from __future__ import annotations
@@ -73,28 +91,18 @@ def _yield_public_objects(
 
 
 @pytest.fixture(name="modulelevel_internal_objects", scope="module")
-def _fixture_modulelevel_internal_objects(
-    internal_api: griffe.Module,
-) -> list[griffe.Object | griffe.Alias]:
+def _fixture_modulelevel_internal_objects(internal_api: griffe.Module) -> list[griffe.Object | griffe.Alias]:
     return list(_yield_public_objects(internal_api, modulelevel=True))
 
 
 @pytest.fixture(name="internal_objects", scope="module")
-def _fixture_internal_objects(
-    internal_api: griffe.Module,
-) -> list[griffe.Object | griffe.Alias]:
+def _fixture_internal_objects(internal_api: griffe.Module) -> list[griffe.Object | griffe.Alias]:
     return list(_yield_public_objects(internal_api, modulelevel=False, special=True))
 
 
 @pytest.fixture(name="public_objects", scope="module")
-def _fixture_public_objects(
-    public_api: griffe.Module,
-) -> list[griffe.Object | griffe.Alias]:
-    return list(
-        _yield_public_objects(
-            public_api, modulelevel=False, inherited=True, special=True
-        )
-    )
+def _fixture_public_objects(public_api: griffe.Module) -> list[griffe.Object | griffe.Alias]:
+    return list(_yield_public_objects(public_api, modulelevel=False, inherited=True, special=True))
 
 
 @pytest.fixture(name="inventory", scope="module")
@@ -106,30 +114,23 @@ def _fixture_inventory() -> Inventory:
         return Inventory.parse_sphinx(file)
 
 
-def test_exposed_objects(
-    modulelevel_internal_objects: list[griffe.Object | griffe.Alias],
-) -> None:
+def test_exposed_objects(modulelevel_internal_objects: list[griffe.Object | griffe.Alias]) -> None:
     """All public objects in the internal API are exposed under `iseewhatyoudid`."""
     not_exposed = [
         obj.path
         for obj in modulelevel_internal_objects
-        if obj.name not in iseewhatyoudid.__all__
-        or not hasattr(iseewhatyoudid, obj.name)
+        if obj.name not in iseewhatyoudid.__all__ or not hasattr(iseewhatyoudid, obj.name)
     ]
     assert not not_exposed, "Objects not exposed:\n" + "\n".join(sorted(not_exposed))
 
 
-def test_unique_names(
-    modulelevel_internal_objects: list[griffe.Object | griffe.Alias],
-) -> None:
+def test_unique_names(modulelevel_internal_objects: list[griffe.Object | griffe.Alias]) -> None:
     """All internal objects have unique names."""
     names_to_paths = defaultdict(list)
     for obj in modulelevel_internal_objects:
         names_to_paths[obj.name].append(obj.path)
     non_unique = [paths for paths in names_to_paths.values() if len(paths) > 1]
-    assert not non_unique, "Non-unique names:\n" + "\n".join(
-        str(paths) for paths in non_unique
-    )
+    assert not non_unique, "Non-unique names:\n" + "\n".join(str(paths) for paths in non_unique)
 
 
 def test_single_locations(public_api: griffe.Module) -> None:
@@ -142,11 +143,7 @@ def test_single_locations(public_api: griffe.Module) -> None:
     for obj_name in iseewhatyoudid.__all__:
         obj = public_api[obj_name]
         if obj.aliases and (
-            public_aliases := [
-                path
-                for path, alias in obj.aliases.items()
-                if path != obj.path and _public_path(alias)
-            ]
+            public_aliases := [path for path, alias in obj.aliases.items() if path != obj.path and _public_path(alias)]
         ):
             multiple_locations[obj.path] = public_aliases
     assert not multiple_locations, "Multiple public locations:\n" + "\n".join(
@@ -154,9 +151,7 @@ def test_single_locations(public_api: griffe.Module) -> None:
     )
 
 
-def test_api_matches_inventory(
-    inventory: Inventory, public_objects: list[griffe.Object | griffe.Alias]
-) -> None:
+def test_api_matches_inventory(inventory: Inventory, public_objects: list[griffe.Object | griffe.Alias]) -> None:
     """All public objects are added to the inventory."""
     ignore_names = {"__getattr__", "__init__", "__repr__", "__str__", "__post_init__"}
     not_in_inventory = [
@@ -181,14 +176,10 @@ def test_inventory_matches_api(
         if (
             item.domain == "py"
             and "(" not in item.name
-            and (
-                item.name == "iseewhatyoudid" or item.name.startswith("iseewhatyoudid.")
-            )
+            and (item.name == "iseewhatyoudid" or item.name.startswith("iseewhatyoudid."))
         ):
             obj = loader.modules_collection[item.name]
-            if obj.path not in public_api_paths and not any(
-                path in public_api_paths for path in obj.aliases
-            ):
+            if obj.path not in public_api_paths and not any(path in public_api_paths for path in obj.aliases):
                 not_in_api.append(item.name)
     msg = "Inventory objects not in public API (try running `make run zensical build --clean`):\n{paths}"
     assert not not_in_api, msg.format(paths="\n".join(sorted(not_in_api)))

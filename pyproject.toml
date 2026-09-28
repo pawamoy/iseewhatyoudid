@@ -28,10 +28,7 @@ classifiers = [
     "Topic :: Utilities",
     "Typing :: Typed",
 ]
-dependencies = [
-    "platformdirs>=4.0",
-    "rich>=13.9",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://pawamoy.github.io/iseewhatyoudid"
@@ -44,7 +41,7 @@ Gitter = "https://gitter.im/iseewhatyoudid/community"
 Funding = "https://github.com/sponsors/pawamoy"
 
 [project.scripts]
-iseewhatyoudid = "iseewhatyoudid._internal.cli:main"
+iseewhatyoudid = "iseewhatyoudid:main"
 
 [tool.pdm.version]
 source = "call"
@@ -90,6 +87,7 @@ ci = [
     "ty>=0.0.14",
     "types-markdown>=3.6",
     "types-pyyaml>=6.0",
+    "zizmor>=1.0",
 ]
  docs = [
     "ghp-import>=2.1",

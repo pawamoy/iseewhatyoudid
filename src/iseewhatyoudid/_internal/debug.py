@@ -1,3 +1,21 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 from __future__ import annotations
 
 import os
@@ -79,10 +97,7 @@ def _get_debug_info() -> _Environment:
     """
     py_name, py_version = _interpreter_name_version()
     packages = ["iseewhatyoudid"]
-    variables = [
-        "PYTHONPATH",
-        *[var for var in os.environ if var.startswith("ISEEWHATYOUDID")],
-    ]
+    variables = ["PYTHONPATH", *[var for var in os.environ if var.startswith("ISEEWHATYOUDID")]]
     return _Environment(
         interpreter_name=py_name,
         interpreter_version=py_version,
@@ -97,9 +112,7 @@ def _print_debug_info() -> None:
     """Print debug/environment information."""
     info = _get_debug_info()
     print(f"- __System__: {info.platform}")
-    print(
-        f"- __Python__: {info.interpreter_name} {info.interpreter_version} ({info.interpreter_path})"
-    )
+    print(f"- __Python__: {info.interpreter_name} {info.interpreter_version} ({info.interpreter_path})")
     print("- __Environment variables__:")
     for var in info.variables:
         print(f"  - `{var.name}`: `{var.value}`")
