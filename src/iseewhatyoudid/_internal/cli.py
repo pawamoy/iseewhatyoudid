@@ -47,20 +47,23 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from iseewhatyoudid._internal.activity import _aggregate_activity
 from iseewhatyoudid._internal import debug
+from iseewhatyoudid._internal.activity import _aggregate_activity
 from iseewhatyoudid._internal.github_api import _GitHubClient
 from iseewhatyoudid._internal.html_render import _write_dashboard_html
 
 
 def _configure_logging(
-    *, verbose: int, log_level: str | None, console: Console
+    *,
+    verbose: int,
+    log_level: str | None,
+    console: Console,
 ) -> None:
     if log_level is not None:
         level = getattr(logging, log_level.upper())
     elif verbose == 1:
         level = logging.INFO
-    elif verbose >= 2:
+    elif verbose > 1:
         level = logging.DEBUG
     else:
         level = logging.CRITICAL + 1
@@ -91,7 +94,8 @@ class _DebugInfo(argparse.Action):
 
 def _add_dashboard_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--user", help="GitHub username. Defaults to authenticated user."
+        "--user",
+        help="GitHub username. Defaults to authenticated user.",
     )
     parser.add_argument(
         "--org",
@@ -180,16 +184,22 @@ def _run_dashboard(opts: argparse.Namespace) -> int:
             task_ids: dict[str, TaskID] = {}
 
             def _update_progress(
-                operation: str, completed: int, total: int | None
+                operation: str,
+                completed: int,
+                total: int | None,
             ) -> None:
                 description = f"Fetching {operation}"
                 if operation not in task_ids:
                     task_ids[operation] = progress.add_task(
-                        description, total=total, completed=completed
+                        description,
+                        total=total,
+                        completed=completed,
                     )
                 else:
                     progress.update(
-                        task_ids[operation], completed=completed, total=total
+                        task_ids[operation],
+                        completed=completed,
+                        total=total,
                     )
 
             client = _GitHubClient(
@@ -200,7 +210,8 @@ def _run_dashboard(opts: argparse.Namespace) -> int:
             user = opts.user
             if not user:
                 authentication_task = progress.add_task(
-                    "Checking GitHub authentication", total=None
+                    "Checking GitHub authentication",
+                    total=None,
                 )
                 user = client._get_authenticated_user()
                 progress.update(authentication_task, total=1, completed=1)
@@ -247,14 +258,20 @@ def get_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(prog="iseewhatyoudid")
     parser.add_argument(
-        "-V", "--version", action="version", version=f"%(prog)s {debug._get_version()}"
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {debug._get_version()}",
     )
     parser.add_argument(
-        "--debug-info", action=_DebugInfo, help="Print debug information."
+        "--debug-info",
+        action=_DebugInfo,
+        help="Print debug information.",
     )
     subparsers = parser.add_subparsers(dest="command")
     dashboard = subparsers.add_parser(
-        "dashboard", help="Display your GitHub activity dashboard."
+        "dashboard",
+        help="Display your GitHub activity dashboard.",
     )
     _add_dashboard_arguments(dashboard)
     return parser

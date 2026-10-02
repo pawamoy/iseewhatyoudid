@@ -1,16 +1,39 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from iseewhatyoudid._internal.activity import (
     _CommitSummary,
     _is_default_merge_commit,
 )
 
+if TYPE_CHECKING:
+    from datetime import date
+
+
+_MONTHS_PER_YEAR = 12
+_MIN_TOPIC_WORD_LENGTH = 3
 _CATEGORY_META: tuple[tuple[str, str, str], ...] = (
     ("features", "Features", "#8b5cf6"),
     ("fixes", "Bug fixes", "#ef4444"),
@@ -93,7 +116,7 @@ _CARE_CATEGORIES = {
     "style",
 }
 _PREFIX = re.compile(
-    r"^\s*(?P<type>[A-Za-z][\w-]*)(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?\s*:\s*(?P<description>.+)$"
+    r"^\s*(?P<type>[A-Za-z][\w-]*)(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?\s*:\s*(?P<description>.+)$",
 )
 _WORDS = re.compile(r"[A-Za-z][A-Za-z0-9_-]+")
 _STOP_WORDS = {
@@ -161,22 +184,23 @@ def _month_range(start: date, end: date) -> list[str]:
     while (year, month) <= (end.year, end.month):
         months.append(f"{year:04d}-{month:02d}")
         month += 1
-        if month == 13:
+        if month > _MONTHS_PER_YEAR:
             year += 1
             month = 1
     return months
 
 
 def _datasets(
-    categories: list[str], values: dict[str, list[int]], *, lines: bool = False
+    categories: list[str],
+    values: dict[str, list[int]],
+    *,
+    lines: bool = False,
 ) -> list[dict[str, Any]]:
     return [
         {
             "label": _LABELS[category],
             "data": values[category],
-            "backgroundColor": (
-                f"{_COLORS[category]}28" if lines else _COLORS[category]
-            ),
+            "backgroundColor": (f"{_COLORS[category]}28" if lines else _COLORS[category]),
             "borderColor": _COLORS[category],
             "borderWidth": 2 if lines else 1,
             "pointRadius": 0 if lines else None,
@@ -189,22 +213,17 @@ def _datasets(
 
 def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
     classified = sorted(
-        (
-            _classify_commit(commit)
-            for commit in commits
-            if not _is_default_merge_commit(commit)
-        ),
+        (_classify_commit(commit) for commit in commits if not _is_default_merge_commit(commit)),
         key=lambda item: item.commit.committed_at,
     )
     if not classified:
         return {"available": False}
 
     counts = Counter(item.category for item in classified)
-    active_categories = [
-        category for category, _, _ in _CATEGORY_META if counts[category]
-    ]
+    active_categories = [category for category, _, _ in _CATEGORY_META if counts[category]]
     top_categories = sorted(
-        active_categories, key=lambda category: (-counts[category], category)
+        active_categories,
+        key=lambda category: (-counts[category], category),
     )[:8]
     years = sorted({item.commit.committed_at.year for item in classified})
     by_year: dict[int, Counter[str]] = defaultdict(Counter)
@@ -219,13 +238,10 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
         by_month[commit.committed_at.strftime("%Y-%m")][item.category] += 1
         by_day[commit.committed_at.date().isoformat()][item.category] += 1
         for word in _WORDS.findall(item.description.lower()):
-            if len(word) > 2 and word not in _STOP_WORDS and not word.isdigit():
+            if len(word) >= _MIN_TOPIC_WORD_LENGTH and word not in _STOP_WORDS and not word.isdigit():
                 topics[word] += 1
 
-    composition_values = {
-        category: [by_year[year][category] for year in years]
-        for category in top_categories
-    }
+    composition_values = {category: [by_year[year][category] for year in years] for category in top_categories}
     first_month = classified[0].commit.committed_at.date().replace(day=1)
     last_month = classified[-1].commit.committed_at.date().replace(day=1)
     months = _month_range(first_month, last_month)
@@ -240,17 +256,13 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
         by_repository,
         key=lambda repository: (-sum(by_repository[repository].values()), repository),
     )
-    local_repositories = {
-        item.commit.repository for item in classified if item.commit.source == "local"
-    }
+    local_repositories = {item.commit.repository for item in classified if item.commit.source == "local"}
     shallow_repositories = {
         item.commit.repository
         for item in classified
         if item.commit.source == "local" and not item.commit.history_complete
     }
-    github_repositories = {
-        item.commit.repository for item in classified if item.commit.source == "github"
-    }
+    github_repositories = {item.commit.repository for item in classified if item.commit.source == "github"}
     matrix_repositories = repositories[:12]
     matrix_categories = top_categories[:8]
     roles = []
@@ -267,11 +279,10 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
                 "primary": _LABELS[primary],
                 "variety": len(repository_counts),
                 "details": [
-                    {"label": _LABELS[category], "count": count}
-                    for category, count in repository_counts.most_common(4)
+                    {"label": _LABELS[category], "count": count} for category, count in repository_counts.most_common(4)
                 ],
                 "url": f"https://github.com/{repository}",
-            }
+            },
         )
 
     variety = [len(by_year[year]) for year in years]
@@ -289,7 +300,7 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
                     "date": item.commit.committed_at.date().isoformat(),
                     "headline": item.commit.headline,
                     "url": item.commit.url,
-                }
+                },
             )
 
     care_count = sum(counts[category] for category in _CARE_CATEGORIES)
@@ -304,19 +315,16 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
     }
     rhythm_colors = ("#8b5cf6", "#ef4444", "#22c55e", "#06b6d4", "#f59e0b", "#94a3b8")
     rhythm_datasets = []
-    for (label, categories), color in zip(rhythm_groups.items(), rhythm_colors):
+    for (label, categories), color in zip(rhythm_groups.items(), rhythm_colors, strict=True):
         rhythm_datasets.append(
             {
                 "label": label,
-                "data": [
-                    sum(by_month[month][category] for category in categories)
-                    for month in latest_months
-                ],
+                "data": [sum(by_month[month][category] for category in categories) for month in latest_months],
                 "backgroundColor": color,
-            }
+            },
         )
 
-    seasons = []
+    seasons: list[dict[str, Any]] = []
     for year in years:
         total = sum(by_year[year].values())
         care = sum(by_year[year][category] for category in _CARE_CATEGORIES)
@@ -333,44 +341,38 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
                             key=lambda category: by_year[year][category],
                         )
                     ],
-                }
+                },
             )
     seasons.sort(key=lambda item: (-item["share"], -item["care"]))
 
     insights = []
-    docs_repositories = sum(
-        by_repository[repository]["documentation"] > 0 for repository in repositories
-    )
+    docs_repositories = sum(by_repository[repository]["documentation"] > 0 for repository in repositories)
     test_months = sum(by_month[month]["tests"] > 0 for month in months)
-    fix_repositories = sum(
-        by_repository[repository]["fixes"] > 0 for repository in repositories
-    )
+    fix_repositories = sum(by_repository[repository]["fixes"] > 0 for repository in repositories)
     if docs_repositories:
         insights.append(f"You documented {docs_repositories} public repositories.")
     if test_months:
         insights.append(f"Testing work appeared across {test_months} different months.")
-    care_years = sum(
-        any(by_year[year][category] for category in _CARE_CATEGORIES) for year in years
-    )
+    care_years = sum(any(by_year[year][category] for category in _CARE_CATEGORIES) for year in years)
     if care_years:
         insights.append(
-            f"Care and maintenance appeared in {care_years} of {len(years)} represented years."
+            f"Care and maintenance appeared in {care_years} of {len(years)} represented years.",
         )
     widest_repository = max(repositories, key=lambda repo: len(by_repository[repo]))
     insights.append(
         f"{widest_repository} contains your widest recorded variety: "
-        f"{len(by_repository[widest_repository])} kinds of work."
+        f"{len(by_repository[widest_repository])} kinds of work.",
     )
     security_items = [item for item in classified if item.category == "security"]
     if security_items:
         insights.append(
             "Your first recognized security change among these summaries was "
-            f"{security_items[0].commit.committed_at.date().isoformat()}."
+            f"{security_items[0].commit.committed_at.date().isoformat()}.",
         )
     docs_and_tests = counts["documentation"] + counts["tests"]
     if docs_and_tests:
         insights.append(
-            f"Tests and documentation account for {docs_and_tests} recorded changes."
+            f"Tests and documentation account for {docs_and_tests} recorded changes.",
         )
     if fix_repositories:
         insights.append(f"You recorded fixes across {fix_repositories} repositories.")
@@ -380,17 +382,16 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
         if latest_variety >= first_variety:
             insights.append(
                 f"Your recorded work expanded from {first_variety} kinds in "
-                f"{years[0]} to {latest_variety} in {years[-1]}."
+                f"{years[0]} to {latest_variety} in {years[-1]}.",
             )
         else:
             insights.append(
                 f"These summaries hold {first_variety} kinds of work in {years[0]} "
-                f"and {latest_variety} in {years[-1]}."
+                f"and {latest_variety} in {years[-1]}.",
             )
     quietest_year = min(years, key=lambda year: sum(by_year[year].values()))
     insights.append(
-        f"Even the smallest recorded chapter, {quietest_year}, contained "
-        f"{len(by_year[quietest_year])} kinds of work."
+        f"Even the smallest recorded chapter, {quietest_year}, contained {len(by_year[quietest_year])} kinds of work.",
     )
 
     gallery = [
@@ -417,7 +418,7 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
                 "headline": item.commit.headline,
                 "repository": item.commit.repository,
                 "url": item.commit.url,
-            }
+            },
         )
     return {
         "available": True,
@@ -452,20 +453,13 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
             for day, day_counts in sorted(by_day.items())
         ],
         "categories": [
-            {"id": category, "label": _LABELS[category], "color": _COLORS[category]}
-            for category in active_categories
+            {"id": category, "label": _LABELS[category], "color": _COLORS[category]} for category in active_categories
         ],
         "matrix": {
             "repositories": matrix_repositories,
-            "categories": [
-                {"id": category, "label": _LABELS[category]}
-                for category in matrix_categories
-            ],
+            "categories": [{"id": category, "label": _LABELS[category]} for category in matrix_categories],
             "values": {
-                repository: {
-                    category: by_repository[repository][category]
-                    for category in matrix_categories
-                }
+                repository: {category: by_repository[repository][category] for category in matrix_categories}
                 for repository in matrix_repositories
             },
         },
@@ -477,7 +471,7 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
             "count": care_count,
             "share": round(care_count / len(classified) * 100),
             "categories": len(
-                [category for category in _CARE_CATEGORIES if counts[category]]
+                [category for category in _CARE_CATEGORIES if counts[category]],
             ),
         },
         "rhythm": {"labels": latest_months, "datasets": rhythm_datasets},
@@ -491,7 +485,7 @@ def _analyze_commits(commits: list[_CommitSummary]) -> dict[str, Any]:
             "classified": sum(item.recognized for item in classified),
             "total": len(classified),
             "percent": round(
-                sum(item.recognized for item in classified) / len(classified) * 100
+                sum(item.recognized for item in classified) / len(classified) * 100,
             ),
         },
         "insights": insights,

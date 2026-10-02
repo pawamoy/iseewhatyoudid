@@ -1,8 +1,26 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 _CATEGORIES: tuple[str, ...] = (
     "opened_issues",
@@ -14,7 +32,7 @@ _CATEGORIES: tuple[str, ...] = (
     "commits",
 )
 _DEFAULT_MERGE_SUBJECT = re.compile(
-    r"^Merge (?:branch(?:es)?|remote-tracking branch|tag|commit|pull request)\b"
+    r"^Merge (?:branch(?:es)?|remote-tracking branch|tag|commit|pull request)\b",
 )
 
 
@@ -57,7 +75,7 @@ class _CollectedActivity:
 
 def _is_default_merge_commit(commit: _CommitSummary) -> bool:
     return commit.is_merge is not False and bool(
-        _DEFAULT_MERGE_SUBJECT.match(commit.headline)
+        _DEFAULT_MERGE_SUBJECT.match(commit.headline),
     )
 
 
@@ -72,16 +90,8 @@ def _shift_month(month: date, offset: int) -> date:
 
 
 def _build_year_buckets(values: list[datetime], *, now: datetime) -> list[_Bucket]:
-    if values:
-        min_year = min(value.astimezone(timezone.utc).year for value in values)
-    else:
-        min_year = now.year
-    buckets = []
-    for year in range(min_year, now.year + 1):
-        buckets.append(
-            _Bucket(label=str(year), counts={category: 0 for category in _CATEGORIES})
-        )
-    return buckets
+    min_year = min(value.astimezone(UTC).year for value in values) if values else now.year
+    return [_Bucket(label=str(year), counts=dict.fromkeys(_CATEGORIES, 0)) for year in range(min_year, now.year + 1)]
 
 
 def _build_month_buckets(*, now: datetime) -> list[_Bucket]:
@@ -92,8 +102,8 @@ def _build_month_buckets(*, now: datetime) -> list[_Bucket]:
         buckets.append(
             _Bucket(
                 label=bucket_month.strftime("%Y-%m"),
-                counts={category: 0 for category in _CATEGORIES},
-            )
+                counts=dict.fromkeys(_CATEGORIES, 0),
+            ),
         )
     return buckets
 
@@ -106,7 +116,7 @@ def _build_week_buckets(*, now: datetime) -> list[_Bucket]:
         iso = bucket_week.isocalendar()
         label = f"{iso.year}-W{iso.week:02d}"
         buckets.append(
-            _Bucket(label=label, counts={category: 0 for category in _CATEGORIES})
+            _Bucket(label=label, counts=dict.fromkeys(_CATEGORIES, 0)),
         )
     return buckets
 
@@ -118,8 +128,8 @@ def _build_day_buckets(*, now: datetime) -> list[_Bucket]:
         buckets.append(
             _Bucket(
                 label=bucket_day.strftime("%Y-%m-%d"),
-                counts={category: 0 for category in _CATEGORIES},
-            )
+                counts=dict.fromkeys(_CATEGORIES, 0),
+            ),
         )
     return buckets
 
@@ -131,8 +141,8 @@ def _build_activity_day_buckets(*, now: datetime) -> list[_Bucket]:
         buckets.append(
             _Bucket(
                 label=bucket_day.strftime("%Y-%m-%d"),
-                counts={category: 0 for category in _CATEGORIES},
-            )
+                counts=dict.fromkeys(_CATEGORIES, 0),
+            ),
         )
     return buckets
 
@@ -142,7 +152,7 @@ def _aggregate_activity(
     *,
     now: datetime | None = None,
 ) -> dict[str, list[_Bucket]]:
-    current = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
+    current = now.astimezone(UTC) if now else datetime.now(UTC)
     all_values = [event.occurred_at for event in events]
 
     years = _build_year_buckets(all_values, now=current)
@@ -160,7 +170,7 @@ def _aggregate_activity(
     for event in events:
         if event.category not in _CATEGORIES or event.count < 1:
             continue
-        utc = event.occurred_at.astimezone(timezone.utc)
+        utc = event.occurred_at.astimezone(UTC)
         year_label = str(utc.year)
         month_label = utc.strftime("%Y-%m")
         iso = utc.date().isocalendar()

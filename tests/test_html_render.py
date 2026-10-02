@@ -1,9 +1,27 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 """Tests for HTML dashboard rendering."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from iseewhatyoudid._internal.activity import (
     _ActivityEvent,
@@ -12,6 +30,9 @@ from iseewhatyoudid._internal.activity import (
     _CommitSummary,
 )
 from iseewhatyoudid._internal.html_render import _dashboard_data, _write_dashboard_html
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_write_dashboard_html(tmp_path: Path) -> None:
@@ -27,7 +48,7 @@ def test_write_dashboard_html(tmp_path: Path) -> None:
     events = [
         _ActivityEvent(
             category="opened_issues",
-            occurred_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
             repository="octocat/example",
             count=2,
             title="A useful issue",
@@ -35,7 +56,7 @@ def test_write_dashboard_html(tmp_path: Path) -> None:
         ),
         _ActivityEvent(
             category="comments",
-            occurred_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
             repository="octocat/example",
             count=3,
         ),
@@ -44,10 +65,10 @@ def test_write_dashboard_html(tmp_path: Path) -> None:
         _CommitSummary(
             oid="abc123",
             headline="docs(readme): explain the dashboard",
-            committed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            committed_at=datetime(2026, 1, 1, tzinfo=UTC),
             repository="octocat/example",
             url="https://github.com/octocat/example/commit/abc123",
-        )
+        ),
     ]
 
     _write_dashboard_html(
@@ -91,13 +112,13 @@ def test_dashboard_summaries_include_totals_and_averages() -> None:
     events = [
         _ActivityEvent(
             category="opened_issues",
-            occurred_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2025, 1, 1, tzinfo=UTC),
             repository="octocat/example",
             count=6,
         ),
         _ActivityEvent(
             category="closed_issues",
-            occurred_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
             repository="octocat/example",
             count=4,
         ),
@@ -111,9 +132,7 @@ def test_dashboard_summaries_include_totals_and_averages() -> None:
         scope=["all repositories"],
     )
 
-    opened_issues = next(
-        summary for summary in data["summaries"] if summary["label"] == "Issues started"
-    )
+    opened_issues = next(summary for summary in data["summaries"] if summary["label"] == "Issues started")
     assert opened_issues == {
         "label": "Issues started",
         "value": 6,
@@ -129,7 +148,7 @@ def test_dashboard_derives_kind_personal_insights() -> None:
     events = [
         _ActivityEvent(
             category="opened_issues",
-            occurred_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2020, 1, 1, tzinfo=UTC),
             repository="octocat/example",
             title="A useful idea",
             url=issue_url,
@@ -138,7 +157,7 @@ def test_dashboard_derives_kind_personal_insights() -> None:
         ),
         _ActivityEvent(
             category="closed_issues",
-            occurred_at=datetime(2020, 2, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2020, 2, 1, tzinfo=UTC),
             repository="octocat/example",
             title="A useful idea",
             url=issue_url,
@@ -147,7 +166,7 @@ def test_dashboard_derives_kind_personal_insights() -> None:
         ),
         _ActivityEvent(
             category="opened_prs",
-            occurred_at=datetime(2021, 3, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2021, 3, 1, tzinfo=UTC),
             repository="octocat/example",
             title="Make it better",
             url=pr_url,
@@ -156,7 +175,7 @@ def test_dashboard_derives_kind_personal_insights() -> None:
         ),
         _ActivityEvent(
             category="merged_prs",
-            occurred_at=datetime(2021, 3, 11, tzinfo=timezone.utc),
+            occurred_at=datetime(2021, 3, 11, tzinfo=UTC),
             repository="octocat/example",
             title="Make it better",
             url=pr_url,
@@ -165,7 +184,7 @@ def test_dashboard_derives_kind_personal_insights() -> None:
         ),
         _ActivityEvent(
             category="comments",
-            occurred_at=datetime(2023, 6, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2023, 6, 1, tzinfo=UTC),
             repository="someone/community",
             title="Could this work?",
             url="https://github.com/someone/community/issues/8",
@@ -174,13 +193,14 @@ def test_dashboard_derives_kind_personal_insights() -> None:
         ),
         _ActivityEvent(
             category="commits",
-            occurred_at=datetime(2024, 7, 1, tzinfo=timezone.utc),
+            occurred_at=datetime(2024, 7, 1, tzinfo=UTC),
             repository="octocat/example",
             count=5,
         ),
     ]
     aggregated = _aggregate_activity(
-        events, now=datetime(2026, 8, 15, tzinfo=timezone.utc)
+        events,
+        now=datetime(2026, 8, 15, tzinfo=UTC),
     )
 
     data = _dashboard_data(

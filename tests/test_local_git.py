@@ -1,3 +1,21 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 """Tests for reading commit summaries from local public clones."""
 
 from __future__ import annotations
@@ -5,8 +23,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -19,12 +37,16 @@ from iseewhatyoudid._internal.local_git import (
     _normalize_github_remote,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 def _git(repository: Path, *arguments: str) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repository), *arguments],
+    result = subprocess.run(  # noqa: S603
+        ["git", "-C", str(repository), *arguments],  # noqa: S607
         capture_output=True,
         check=False,
+        encoding="utf8",
         text=True,
     )
     assert result.returncode == 0, result.stderr
@@ -39,10 +61,11 @@ def _commit(repository: Path, headline: str, sequence: int) -> None:
     environment = dict(os.environ)
     environment["GIT_AUTHOR_DATE"] = f"2026-01-{sequence:02d}T12:00:00Z"
     environment["GIT_COMMITTER_DATE"] = environment["GIT_AUTHOR_DATE"]
-    result = subprocess.run(
-        ["git", "-C", str(repository), "commit", "-m", headline],
+    result = subprocess.run(  # noqa: S603
+        ["git", "-C", str(repository), "commit", "-m", headline],  # noqa: S607
         capture_output=True,
         check=False,
+        encoding="utf8",
         env=environment,
         text=True,
     )
@@ -89,13 +112,15 @@ def test_discovery_returns_known_and_unknown_github_repositories(
     )
 
     known = _discover_local_remotes(
-        [tmp_path / "projects"], known_repositories=["octocat/example"]
+        [tmp_path / "projects"],
+        known_repositories=["octocat/example"],
     )
     assert [(remote.path, remote.remote) for remote in known] == [
-        (repository, "origin")
+        (repository, "origin"),
     ]
     unknown = _discover_local_remotes(
-        [tmp_path / "projects"], known_repositories=["octocat/elsewhere"]
+        [tmp_path / "projects"],
+        known_repositories=["octocat/elsewhere"],
     )
     assert unknown[0].repository == "octocat/example"
 
@@ -117,7 +142,8 @@ def test_local_commits_are_cached_and_updated_incrementally(tmp_path: Path) -> N
     _commit(repository, "feat: begin", 1)
     _commit(repository, "fix: follow through", 2)
     remote = _discover_local_remotes(
-        [tmp_path / "projects"], known_repositories=["octocat/example"]
+        [tmp_path / "projects"],
+        known_repositories=["octocat/example"],
     )
     cache = _empty_cache("octocat")
 
@@ -156,7 +182,8 @@ def test_local_author_identity_is_explicit(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
     _commit(repository, "feat: local identity", 1)
     remote = _discover_local_remotes(
-        [tmp_path / "projects"], known_repositories=["octocat/example"]
+        [tmp_path / "projects"],
+        known_repositories=["octocat/example"],
     )
 
     result = _collect_local_commit_summaries(
@@ -174,7 +201,7 @@ def test_local_author_identity_is_explicit(tmp_path: Path) -> None:
 
 def test_local_cache_keeps_newest_two_thousand_commits() -> None:
     """Oversized local histories retain only the newest configured allowance."""
-    start = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2020, 1, 1, tzinfo=UTC)
     records = {
         str(index): {
             "committedAt": (start + timedelta(minutes=index)).isoformat(),

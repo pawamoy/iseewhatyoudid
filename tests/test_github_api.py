@@ -1,18 +1,38 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 """Tests for GitHub CLI integration."""
 
 from __future__ import annotations
 
 import json
 import subprocess
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from iseewhatyoudid._internal.cache import _empty_cache, _save_cache
 from iseewhatyoudid._internal.github_api import _GitHubClient
 from iseewhatyoudid._internal.local_git import _LocalCommitResult, _LocalRemote
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _connection(
@@ -47,7 +67,7 @@ def _public_comment(node_id: str) -> dict[str, Any]:
             "repository": {
                 "nameWithOwner": "octocat/example",
                 "isPrivate": False,
-            }
+            },
         },
         "pullRequest": None,
     }
@@ -85,12 +105,16 @@ def test_graphql_request_uses_gh_with_json_stdin(
 
     def _run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append((command, kwargs))
-        assert set(kwargs) == {"capture_output", "check", "input", "text"}
+        assert set(kwargs) == {"capture_output", "check", "encoding", "input", "text"}
         assert kwargs["capture_output"] is True
         assert kwargs["check"] is False
+        assert kwargs["encoding"] == "utf8"
         assert kwargs["text"] is True
         return subprocess.CompletedProcess(
-            command, 0, stdout=json.dumps(response), stderr=""
+            command,
+            0,
+            stdout=json.dumps(response),
+            stderr="",
         )
 
     monkeypatch.setattr("iseewhatyoudid._internal.github_api.subprocess.run", _run)
@@ -110,9 +134,7 @@ def test_graphql_request_uses_gh_with_json_stdin(
     assert payload["variables"] == {"login": "octocat"}
     assert "query User" in payload["query"]
     assert "Fetching user lookup from GitHub." in caplog.messages
-    assert any(
-        message.startswith("Fetched user lookup in") for message in caplog.messages
-    )
+    assert any(message.startswith("Fetched user lookup in") for message in caplog.messages)
 
 
 def test_github_cli_failure_has_actionable_error(
@@ -192,10 +214,10 @@ def test_core_activity_combines_independent_connections(
                 "data": {
                     "user": {
                         "issues": _connection(
-                            [_public_issue("issue-1"), _private_issue("private-issue")]
+                            [_public_issue("issue-1"), _private_issue("private-issue")],
                         ),
                         "pullRequests": _connection(
-                            [_public_pr("pr-1"), _private_issue("private-pr")]
+                            [_public_pr("pr-1"), _private_issue("private-pr")],
                         ),
                         "issueComments": _connection(
                             [
@@ -221,7 +243,10 @@ def test_core_activity_combines_independent_connections(
     calls: list[dict[str, Any]] = []
 
     def _request(
-        query: str, *, variables: dict[str, Any], operation: str
+        query: str,
+        *,
+        variables: dict[str, Any],
+        operation: str,
     ) -> dict[str, Any]:
         del query, operation
         calls.append(dict(variables))
@@ -232,7 +257,8 @@ def test_core_activity_combines_independent_connections(
     cache = _empty_cache("octocat")
 
     issues, pull_requests, comments = client._collect_core_activity(
-        user="octocat", cache=cache
+        user="octocat",
+        cache=cache,
     )
 
     assert set(issues) == {"issue-1"}
@@ -265,7 +291,9 @@ def test_partial_checkpoint_does_not_end_history_import(
                         "issues": _connection([]),
                         "pullRequests": _connection([]),
                         "issueComments": _connection(
-                            [cached_comment], has_next=True, cursor="older"
+                            [cached_comment],
+                            has_next=True,
+                            cursor="older",
                         ),
                     },
                 },
@@ -274,7 +302,7 @@ def test_partial_checkpoint_does_not_end_history_import(
                 "data": {
                     "user": {
                         "issueComments": _connection(
-                            [_public_comment("comment-older")]
+                            [_public_comment("comment-older")],
                         ),
                     },
                 },
@@ -284,7 +312,10 @@ def test_partial_checkpoint_does_not_end_history_import(
     calls = 0
 
     def _request(
-        query: str, *, variables: dict[str, Any], operation: str
+        query: str,
+        *,
+        variables: dict[str, Any],
+        operation: str,
     ) -> dict[str, Any]:
         nonlocal calls
         del query, variables, operation
@@ -309,11 +340,14 @@ def test_completed_history_stops_at_cached_page(
     cache["issues"]["issue-1"] = _public_issue("issue-1")
     cache["pull_requests"]["pr-1"] = _public_pr("pr-1")
     cache["comments"]["comment-1"] = _public_comment("comment-1")
-    cache["complete"] = {key: True for key in cache["complete"]}
+    cache["complete"] = dict.fromkeys(cache["complete"], True)
     calls = 0
 
     def _request(
-        query: str, *, variables: dict[str, Any], operation: str
+        query: str,
+        *,
+        variables: dict[str, Any],
+        operation: str,
     ) -> dict[str, Any]:
         nonlocal calls
         del query, variables, operation
@@ -327,7 +361,9 @@ def test_completed_history_stops_at_cached_page(
                         cursor="older-issues",
                     ),
                     "pullRequests": _connection(
-                        [_public_pr("pr-1")], has_next=True, cursor="older-prs"
+                        [_public_pr("pr-1")],
+                        has_next=True,
+                        cursor="older-prs",
                     ),
                     "issueComments": _connection(
                         [_public_comment("comment-1")],
@@ -354,8 +390,7 @@ def test_recent_cache_rebuilds_activity_without_network(
     repository = {"nameWithOwner": "octocat/example", "isPrivate": False}
     cache = _empty_cache("octocat")
     cache["updated_at"] = {
-        key: datetime.now(timezone.utc).isoformat()
-        for key in ("activity", "statuses", "commits", "commit_summaries")
+        key: datetime.now(UTC).isoformat() for key in ("activity", "statuses", "commits", "commit_summaries")
     }
     cache["issues"]["issue-1"] = {
         "id": "issue-1",
@@ -404,7 +439,7 @@ def test_recent_cache_rebuilds_activity_without_network(
             "url": "https://github.com/octocat/secret/commit/private",
             "repository": "octocat/secret",
             "isPrivate": True,
-        }
+        },
     }
     _save_cache(cache, cache_dir=tmp_path)
     client = _GitHubClient(cache_dir=tmp_path)
@@ -422,9 +457,7 @@ def test_recent_cache_rebuilds_activity_without_network(
     )
 
     totals = {
-        category: sum(
-            event.count for event in collected.events if event.category == category
-        )
+        category: sum(event.count for event in collected.events if event.category == category)
         for category in {event.category for event in collected.events}
     }
     assert totals == {
@@ -434,7 +467,7 @@ def test_recent_cache_rebuilds_activity_without_network(
         "commits": 2,
     }
     assert "PRIVATE_SENTINEL" not in (tmp_path / "octocat.json").read_text(
-        encoding="utf-8"
+        encoding="utf-8",
     )
 
 
@@ -445,8 +478,7 @@ def test_local_history_includes_repositories_absent_from_contribution_data(
     """A public local clone does not need to appear in GitHub contribution groups."""
     cache = _empty_cache("octocat")
     cache["updated_at"] = {
-        key: datetime.now(timezone.utc).isoformat()
-        for key in ("activity", "statuses", "commits", "commit_summaries")
+        key: datetime.now(UTC).isoformat() for key in ("activity", "statuses", "commits", "commit_summaries")
     }
     cache["commit_years"]["2026"] = [
         {
@@ -454,7 +486,7 @@ def test_local_history_includes_repositories_absent_from_contribution_data(
             "commitCount": 1,
             "repository": "octocat/example",
             "isPrivate": False,
-        }
+        },
     ]
     cache["commit_summaries"]["octocat/example"] = {}
     _save_cache(cache, cache_dir=tmp_path)
@@ -516,15 +548,15 @@ def test_private_commit_groups_are_discarded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Private repository commit metadata never enters the year cache."""
-    current_year = datetime.now(timezone.utc).year
+    current_year = datetime.now(UTC).year
     responses = iter(
         [
             {
                 "data": {
                     "user": {
-                        "contributionsCollection": {"contributionYears": [current_year]}
-                    }
-                }
+                        "contributionsCollection": {"contributionYears": [current_year]},
+                    },
+                },
             },
             {
                 "data": {
@@ -542,7 +574,7 @@ def test_private_commit_groups_are_discarded(
                                             {
                                                 "occurredAt": f"{current_year}-01-01T00:00:00Z",
                                                 "commitCount": 2,
-                                            }
+                                            },
                                         ],
                                     },
                                     "recent": {"nodes": []},
@@ -558,17 +590,17 @@ def test_private_commit_groups_are_discarded(
                                             {
                                                 "occurredAt": f"{current_year}-01-02T00:00:00Z",
                                                 "commitCount": 99,
-                                            }
+                                            },
                                         ],
                                     },
                                     "recent": {"nodes": []},
                                 },
-                            ]
-                        }
-                    }
-                }
+                            ],
+                        },
+                    },
+                },
             },
-        ]
+        ],
     )
     client = _GitHubClient()
     monkeypatch.setattr(
@@ -585,7 +617,7 @@ def test_private_commit_groups_are_discarded(
             "commitCount": 2,
             "repository": "octocat/example",
             "isPrivate": False,
-        }
+        },
     ]
 
 
@@ -621,14 +653,14 @@ def test_commit_summaries_are_bounded_batched_and_public(
                                         "messageHeadline": "feat: add a thing",
                                         "committedDate": "2026-01-01T00:00:00Z",
                                         "url": "https://github.com/octocat/example/commit/commit-1",
-                                    }
+                                    },
                                 ],
                                 "pageInfo": {
                                     "hasNextPage": True,
                                     "endCursor": "older-public-commits",
                                 },
-                            }
-                        }
+                            },
+                        },
                     },
                 },
                 "r1": {
@@ -643,17 +675,17 @@ def test_commit_summaries_are_bounded_batched_and_public(
                                         "messageHeadline": "PRIVATE_SENTINEL",
                                         "committedDate": "2026-01-01T00:00:00Z",
                                         "url": "https://github.com/octocat/secret/commit/private",
-                                    }
+                                    },
                                 ],
                                 "pageInfo": {
                                     "hasNextPage": False,
                                     "endCursor": None,
                                 },
-                            }
-                        }
+                            },
+                        },
                     },
                 },
-            }
+            },
         }
 
     client = _GitHubClient()
@@ -706,7 +738,7 @@ def test_local_repository_metadata_requires_public_confirmation(
                     "isPrivate": True,
                     "defaultBranchRef": {"name": "main"},
                 },
-            }
+            },
         }
 
     client = _GitHubClient()
@@ -714,7 +746,8 @@ def test_local_repository_metadata_requires_public_confirmation(
     monkeypatch.setattr(client, "_checkpoint_cache", lambda cache: None)
 
     branches = client._validate_public_repositories(
-        ["octocat/example", "octocat/secret"], cache=cache
+        ["octocat/example", "octocat/secret"],
+        cache=cache,
     )
 
     assert branches == {"octocat/example": ("OctoCat/Example", "main")}
@@ -737,11 +770,11 @@ def test_commit_summary_refresh_stops_on_known_sha(
             "url": "https://github.com/octocat/example/commit/known",
             "repository": "octocat/example",
             "isPrivate": False,
-        }
+        },
     }
     calls = 0
 
-    def _request(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    def _request(*args: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG001
         nonlocal calls
         calls += 1
         return {
@@ -770,11 +803,11 @@ def test_commit_summary_refresh_stops_on_known_sha(
                                     "hasNextPage": True,
                                     "endCursor": "older",
                                 },
-                            }
-                        }
+                            },
+                        },
                     },
-                }
-            }
+                },
+            },
         }
 
     client = _GitHubClient()

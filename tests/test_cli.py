@@ -29,8 +29,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from iseewhatyoudid import main
-from iseewhatyoudid._internal import cli
-from iseewhatyoudid._internal import debug
+from iseewhatyoudid._internal import cli, debug
 from iseewhatyoudid._internal.activity import _CollectedActivity
 
 
@@ -97,7 +96,7 @@ def test_dashboard_accepts_repeatable_local_commit_options() -> None:
             "first@example.com",
             "--commit-author-email",
             "second@example.com",
-        ]
+        ],
     )
 
     assert options.repos_dir == [Path("projects"), Path("work")]
@@ -151,7 +150,7 @@ def test_dashboard_without_scope_uses_all_repositories(
     collected_options: dict[str, object] = {}
 
     class _Client:
-        def __init__(self, **kwargs: object) -> None:  # noqa: ARG002
+        def __init__(self, **kwargs: object) -> None:
             pass
 
         def _get_authenticated_user(self) -> str:

@@ -1,3 +1,21 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +33,8 @@ from urllib.parse import urlparse
 _logger = logging.getLogger(__name__)
 _ProgressCallback = Callable[[str, int, int | None], None]
 _MAX_COMMITS_PER_REPOSITORY = 2_000
+_REPOSITORY_NAME_PARTS = 2
+_LOG_FIELD_COUNT = 6
 _IGNORED_DIRECTORIES = {
     ".cache",
     ".mypy_cache",
@@ -49,26 +69,27 @@ def _git_environment() -> dict[str, str]:
 
 def _run_git(path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(
-            ["git", "-C", str(path), *arguments],
+        return subprocess.run(  # noqa: S603
+            ["git", "-C", str(path), *arguments],  # noqa: S607
             capture_output=True,
             check=False,
+            encoding="utf8",
             env=_git_environment(),
             text=True,
         )
     except FileNotFoundError as error:
         raise RuntimeError(
-            "Git is required when using `--repos-dir`. Install Git or omit the option."
+            "Git is required when using `--repos-dir`. Install Git or omit the option.",
         ) from error
     except OSError as error:
         raise RuntimeError(
-            f"Could not inspect local Git repository: {error}"
+            f"Could not inspect local Git repository: {error}",
         ) from error
 
 
 def _normalize_github_remote(url: str) -> str | None:
     value = url.strip()
-    scp_remote = re.fullmatch(r"(?:[^@]+@)?github\.com:(.+)", value, flags=re.I)
+    scp_remote = re.fullmatch(r"(?:[^@]+@)?github\.com:(.+)", value, flags=re.IGNORECASE)
     if scp_remote:
         path = scp_remote.group(1)
     elif "://" in value:
@@ -82,7 +103,7 @@ def _normalize_github_remote(url: str) -> str | None:
         return None
     path = path.removesuffix(".git").strip("/")
     parts = path.split("/")
-    if len(parts) != 2 or not all(parts):
+    if len(parts) != _REPOSITORY_NAME_PARTS or not all(parts):
         return None
     return f"{parts[0]}/{parts[1]}"
 
@@ -108,10 +129,7 @@ def _repository_paths(roots: list[Path]) -> list[Path]:
                 if ".git" in names:
                     names.remove(".git")
             names[:] = [
-                name
-                for name in names
-                if name not in _IGNORED_DIRECTORIES
-                and not (current / name).is_symlink()
+                name for name in names if name not in _IGNORED_DIRECTORIES and not (current / name).is_symlink()
             ]
     return repositories
 
@@ -122,9 +140,7 @@ def _discover_local_remotes(
     known_repositories: list[str] | None = None,
     progress_callback: _ProgressCallback | None = None,
 ) -> list[_LocalRemote]:
-    canonical = {
-        repository.lower(): repository for repository in known_repositories or []
-    }
+    canonical = {repository.lower(): repository for repository in known_repositories or []}
     matches = []
     seen: set[tuple[Path, str, str]] = set()
     paths = _repository_paths(roots)
@@ -155,7 +171,7 @@ def _discover_local_remotes(
                         path=path,
                         remote=match.group(1),
                         repository=repository,
-                    )
+                    ),
                 )
                 seen.add(item_key)
         if progress_callback:
@@ -165,13 +181,19 @@ def _discover_local_remotes(
 
 def _ref_exists(path: Path, reference: str) -> bool:
     result = _run_git(
-        path, "rev-parse", "--verify", "--quiet", f"{reference}^{{commit}}"
+        path,
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        f"{reference}^{{commit}}",
     )
     return result.returncode == 0
 
 
 def _default_branch_ref(
-    remote: _LocalRemote, *, github_default_branch: str | None
+    remote: _LocalRemote,
+    *,
+    github_default_branch: str | None,
 ) -> str | None:
     candidates = []
     if github_default_branch:
@@ -179,7 +201,7 @@ def _default_branch_ref(
             (
                 f"refs/remotes/{remote.remote}/{github_default_branch}",
                 f"refs/heads/{github_default_branch}",
-            )
+            ),
         )
     symbolic = _run_git(
         remote.path,
@@ -195,7 +217,7 @@ def _default_branch_ref(
             f"refs/remotes/{remote.remote}/master",
             "refs/heads/main",
             "refs/heads/master",
-        )
+        ),
     )
     for candidate in dict.fromkeys(candidates):
         if _ref_exists(remote.path, candidate):
@@ -232,7 +254,7 @@ def _email_matches(email: str, *, login: str, identities: set[str]) -> bool:
         re.fullmatch(
             rf"(?:\d+\+)?{escaped}@users\.noreply\.github\.com",
             normalized,
-        )
+        ),
     )
 
 
@@ -251,8 +273,8 @@ def _parse_log(
 ) -> dict[str, dict[str, Any]]:
     records = {}
     for raw_record in output.split("\x1e"):
-        fields = raw_record.strip("\r\n").split("\x1f", 5)
-        if len(fields) != 6:
+        fields = raw_record.strip("\r\n").split("\x1f", _LOG_FIELD_COUNT - 1)
+        if len(fields) != _LOG_FIELD_COUNT:
             continue
         (
             oid,
@@ -290,7 +312,7 @@ def _record_timestamp(record: dict[str, Any]) -> float:
     if not isinstance(value, str):
         return float("-inf")
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        return datetime.fromisoformat(value).timestamp()
     except ValueError:
         return float("-inf")
 
@@ -316,8 +338,8 @@ def _read_matching_log(
     shallow: bool,
 ) -> dict[str, dict[str, Any]] | None:
     try:
-        process = subprocess.Popen(
-            [
+        process = subprocess.Popen(  # noqa: S603
+            [  # noqa: S607
                 "git",
                 "-C",
                 str(path),
@@ -327,6 +349,7 @@ def _read_matching_log(
                 "--no-show-signature",
                 "--format=%H%x1f%cI%x1f%ae%x1f%aE%x1f%P%x1f%s",
             ],
+            encoding="utf8",
             env=_git_environment(),
             stderr=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -334,11 +357,11 @@ def _read_matching_log(
         )
     except FileNotFoundError as error:
         raise RuntimeError(
-            "Git is required when using `--repos-dir`. Install Git or omit the option."
+            "Git is required when using `--repos-dir`. Install Git or omit the option.",
         ) from error
     except OSError as error:
         raise RuntimeError(
-            f"Could not inspect local Git repository: {error}"
+            f"Could not inspect local Git repository: {error}",
         ) from error
 
     records: dict[str, dict[str, Any]] = {}
@@ -352,7 +375,7 @@ def _read_matching_log(
                     login=login,
                     identities=identities,
                     shallow=shallow,
-                )
+                ),
             )
             if len(records) >= _MAX_COMMITS_PER_REPOSITORY:
                 reached_limit = True
@@ -396,13 +419,13 @@ def _collect_local_commit_summaries(
                 continue
             head = head_result.stdout.strip()
             shallow_result = _run_git(
-                remote.path, "rev-parse", "--is-shallow-repository"
+                remote.path,
+                "rev-parse",
+                "--is-shallow-repository",
             )
             shallow = shallow_result.stdout.strip() == "true"
             shallow_fingerprint = _shallow_fingerprint(remote.path) if shallow else None
-            identities = {
-                email.strip().lower() for email in explicit_emails if email.strip()
-            }
+            identities = {email.strip().lower() for email in explicit_emails if email.strip()}
             if use_configured_identity:
                 identities.update(_configured_emails(remote.path))
             identity = _identity_fingerprint(login, identities)
@@ -420,18 +443,13 @@ def _collect_local_commit_summaries(
                 and state.get("shallow") is shallow
                 and (
                     not shallow
-                    or (
-                        shallow_fingerprint is not None
-                        and state.get("shallowFingerprint") == shallow_fingerprint
-                    )
+                    or (shallow_fingerprint is not None and state.get("shallowFingerprint") == shallow_fingerprint)
                 )
             ):
                 cached_records = _limit_records(cached_records)
                 cache["commit_summaries"][repository] = {
                     oid: record
-                    for oid, record in cache["commit_summaries"]
-                    .get(repository, {})
-                    .items()
+                    for oid, record in cache["commit_summaries"].get(repository, {}).items()
                     if isinstance(record, dict) and record.get("source") != "local"
                 }
                 cache["commit_summaries"][repository].update(cached_records)

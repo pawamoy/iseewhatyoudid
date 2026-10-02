@@ -1,16 +1,41 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 from __future__ import annotations
 
 import html
 import json
 from collections import defaultdict
-from datetime import date, datetime, timezone
-from pathlib import Path
+from datetime import UTC, date, datetime
+from itertools import pairwise
 from statistics import median
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from iseewhatyoudid._internal.activity import _ActivityEvent, _Bucket, _CommitSummary
 from iseewhatyoudid._internal.commit_analysis import _analyze_commits
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from iseewhatyoudid._internal.activity import _ActivityEvent, _Bucket, _CommitSummary
+
+
+_MONTHS_PER_YEAR = 12
+_MIN_RETURN_GAP_DAYS = 30
 _CATEGORY_META: tuple[tuple[str, str, str], ...] = (
     ("opened_issues", "Opened issues", "#06b6d4"),
     ("closed_issues", "Closed issues", "#22c55e"),
@@ -31,11 +56,7 @@ _SECTION_TITLES = {
 
 
 def _count_events(events: list[_ActivityEvent], category: str | None = None) -> int:
-    return sum(
-        event.count
-        for event in events
-        if category is None or event.category == category
-    )
+    return sum(event.count for event in events if category is None or event.category == category)
 
 
 def _month_range(start: date, end: date) -> list[str]:
@@ -44,7 +65,7 @@ def _month_range(start: date, end: date) -> list[str]:
     while (year, month) <= (end.year, end.month):
         months.append(f"{year:04d}-{month:02d}")
         month += 1
-        if month == 13:
+        if month > _MONTHS_PER_YEAR:
             year += 1
             month = 1
     return months
@@ -68,12 +89,12 @@ def _cumulative_data(events: list[_ActivityEvent]) -> dict[str, Any]:
     if not events:
         return {"labels": [], "datasets": []}
     first = min(event.occurred_at for event in events).date().replace(day=1)
-    today = datetime.now(timezone.utc).date().replace(day=1)
+    today = datetime.now(UTC).date().replace(day=1)
     labels = _month_range(first, today)
     per_month: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for event in events:
         per_month[event.occurred_at.strftime("%Y-%m")][event.category] += event.count
-    running = {category: 0 for category in _CATEGORY_LABELS}
+    running = dict.fromkeys(_CATEGORY_LABELS, 0)
     series = {category: [] for category in _CATEGORY_LABELS}
     for label in labels:
         for category in running:
@@ -105,17 +126,14 @@ def _milestones(events: list[_ActivityEvent]) -> list[dict[str, Any]]:
     for event in sorted(events, key=lambda item: item.occurred_at):
         previous = running
         running += event.count
-        while (
-            threshold_index < len(thresholds)
-            and previous < thresholds[threshold_index] <= running
-        ):
+        while threshold_index < len(thresholds) and previous < thresholds[threshold_index] <= running:
             threshold = thresholds[threshold_index]
             milestones.append(
                 {
                     "value": threshold,
                     "date": event.occurred_at.date().isoformat(),
                     "repository": event.repository,
-                }
+                },
             )
             threshold_index += 1
     return milestones[-6:]
@@ -125,21 +143,11 @@ def _lifecycle(events: list[_ActivityEvent]) -> dict[str, Any]:
     def key(event: _ActivityEvent) -> str:
         return event.url or f"{event.repository}:{event.number}:{event.subject_type}"
 
-    opened_issues = {
-        key(event): event for event in events if event.category == "opened_issues"
-    }
-    closed_issues = {
-        key(event): event for event in events if event.category == "closed_issues"
-    }
-    opened_prs = {
-        key(event): event for event in events if event.category == "opened_prs"
-    }
-    merged_prs = {
-        key(event): event for event in events if event.category == "merged_prs"
-    }
-    closed_prs = {
-        key(event): event for event in events if event.category == "closed_prs"
-    }
+    opened_issues = {key(event): event for event in events if event.category == "opened_issues"}
+    closed_issues = {key(event): event for event in events if event.category == "closed_issues"}
+    opened_prs = {key(event): event for event in events if event.category == "opened_prs"}
+    merged_prs = {key(event): event for event in events if event.category == "merged_prs"}
+    closed_prs = {key(event): event for event in events if event.category == "closed_prs"}
 
     issue_durations = [
         (closed.occurred_at - opened_issues[item_key].occurred_at).days
@@ -212,11 +220,7 @@ def _repository_data(events: list[_ActivityEvent]) -> dict[str, Any]:
         totals,
         key=lambda repository: (
             -len(years[repository]),
-            -(
-                max(years[repository]) - min(years[repository])
-                if years[repository]
-                else 0
-            ),
+            -(max(years[repository]) - min(years[repository]) if years[repository] else 0),
             -totals[repository],
         ),
     )[:8]
@@ -229,13 +233,13 @@ def _repository_data(events: list[_ActivityEvent]) -> dict[str, Any]:
                 "year": str(year),
                 "new": len(repositories - seen),
                 "returning": len(repositories & seen),
-            }
+            },
         )
         seen.update(repositories)
     return {
         "count": len(totals),
         "organizations": len(
-            {repository.split("/", 1)[0] for repository in totals if "/" in repository}
+            {repository.split("/", 1)[0] for repository in totals if "/" in repository},
         ),
         "chart": {
             "labels": top,
@@ -268,11 +272,10 @@ def _year_chapters(events: list[_ActivityEvent]) -> list[dict[str, Any]]:
         for event in items:
             repository_totals[event.repository] += event.count
         top_repository = max(
-            repository_totals, key=lambda repository: repository_totals[repository]
+            repository_totals,
+            key=lambda repository: repository_totals[repository],
         )
-        counts = {
-            category: _count_events(items, category) for category in _CATEGORY_LABELS
-        }
+        counts = {category: _count_events(items, category) for category in _CATEGORY_LABELS}
         chapters.append(
             {
                 "year": year,
@@ -282,7 +285,7 @@ def _year_chapters(events: list[_ActivityEvent]) -> list[dict[str, Any]]:
                 "variety": sum(value > 0 for value in counts.values()),
                 "top_repository": top_repository,
                 "counts": counts,
-            }
+            },
         )
     return chapters
 
@@ -313,14 +316,12 @@ def _dashboard_data(
                     }
                     for category, label, color in _CATEGORY_META
                 ],
-            }
+            },
         )
 
     years = aggregated.get("years", [])
     months = aggregated.get("months_last_12", [])
-    totals = {
-        category: _count_events(events, category) for category in _CATEGORY_LABELS
-    }
+    totals = {category: _count_events(events, category) for category in _CATEGORY_LABELS}
     activity_dates = sorted({event.occurred_at.date() for event in events})
     active_months = {event.occurred_at.strftime("%Y-%m") for event in events}
     active_weeks = {event.occurred_at.strftime("%G-W%V") for event in events}
@@ -329,20 +330,13 @@ def _dashboard_data(
 
     def average_detail(category: str) -> str:
         recent = sum(bucket.counts.get(category, 0) for bucket in months)
-        return (
-            f"{totals[category] / max(1, len(years)):.1f}/year · "
-            f"{recent / max(1, len(months)):.1f}/month recently"
-        )
+        return f"{totals[category] / max(1, len(years)):.1f}/year · {recent / max(1, len(months)):.1f}/month recently"
 
     summaries = [
         {
             "label": "Actions that added up",
             "value": total,
-            "detail": (
-                f"Since {activity_dates[0].isoformat()}"
-                if activity_dates
-                else "Your history starts here"
-            ),
+            "detail": (f"Since {activity_dates[0].isoformat()}" if activity_dates else "Your history starts here"),
         },
         {
             "label": "Active days",
@@ -383,21 +377,15 @@ def _dashboard_data(
 
     gaps = [
         (later - earlier).days
-        for earlier, later in zip(activity_dates, activity_dates[1:])
-        if (later - earlier).days >= 30
+        for earlier, later in pairwise(activity_dates)
+        if (later - earlier).days >= _MIN_RETURN_GAP_DAYS
     ]
     comments = [event for event in events if event.category == "comments"]
     conversations = {
-        "issues": sum(
-            event.count for event in comments if event.subject_type == "issue"
-        ),
-        "prs": sum(
-            event.count for event in comments if event.subject_type == "pull_request"
-        ),
+        "issues": sum(event.count for event in comments if event.subject_type == "issue"),
+        "prs": sum(event.count for event in comments if event.subject_type == "pull_request"),
         "others": sum(
-            event.count
-            for event in comments
-            if event.subject_author is not None and event.subject_author != user
+            event.count for event in comments if event.subject_author is not None and event.subject_author != user
         ),
         "repositories": len({event.repository for event in comments}),
     }
@@ -433,10 +421,10 @@ def _dashboard_data(
                 {
                     "label": f"First {label.lower()}",
                     **_event_link(min(matching, key=lambda event: event.occurred_at)),
-                }
+                },
             )
 
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     on_this_day = [
         _event_link(event)
         for event in sorted(events, key=lambda item: item.occurred_at, reverse=True)
@@ -449,15 +437,10 @@ def _dashboard_data(
             memories_by_url.setdefault(event.url, event)
     memories = [_event_link(event) for event in list(memories_by_url.values())[:100]]
 
-    rhythm = []
-    for month_number in range(1, 13):
-        rhythm.append(
-            sum(
-                event.count
-                for event in events
-                if event.occurred_at.month == month_number
-            )
-        )
+    rhythm = [
+        sum(event.count for event in events if event.occurred_at.month == month_number)
+        for month_number in range(1, _MONTHS_PER_YEAR + 1)
+    ]
     activity_days = aggregated.get("days_last_365", [])
     return {
         "user": user,
@@ -474,10 +457,7 @@ def _dashboard_data(
             "longest": max(gaps, default=0),
         },
         "conversations": conversations,
-        "heatmap": [
-            {"date": bucket.label, "count": sum(bucket.counts.values())}
-            for bucket in activity_days
-        ],
+        "heatmap": [{"date": bucket.label, "count": sum(bucket.counts.values())} for bucket in activity_days],
         "cumulative": _cumulative_data(events),
         "mix": {
             "labels": [label for _, label, _ in _CATEGORY_META],
@@ -768,4 +748,4 @@ _HTML_TEMPLATE = """<!doctype html>
 </script>
 </body>
 </html>
-"""
+"""  # noqa: RUF001

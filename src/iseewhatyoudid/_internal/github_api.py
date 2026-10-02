@@ -1,14 +1,31 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 from __future__ import annotations
 
 import json
 import logging
 import subprocess
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from math import ceil
-from pathlib import Path
 from time import monotonic
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from iseewhatyoudid._internal.activity import (
     _ActivityEvent,
@@ -17,10 +34,14 @@ from iseewhatyoudid._internal.activity import (
 )
 from iseewhatyoudid._internal.cache import _load_cache, _save_cache
 from iseewhatyoudid._internal.local_git import (
-    _LocalRemote,
     _collect_local_commit_summaries,
     _discover_local_remotes,
+    _LocalRemote,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 _logger = logging.getLogger(__name__)
 _ProgressCallback = Callable[[str, int, int | None], None]
@@ -33,7 +54,7 @@ _REPOSITORY_METADATA_BATCH_SIZE = 50
 
 
 def _parse_datetime(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.fromisoformat(value)
 
 
 def _is_public_activity_node(connection: str, node: dict[str, Any]) -> bool:
@@ -86,13 +107,13 @@ class _GitHubClient:
             return False
         try:
             updated_at = _parse_datetime(value)
-            age = datetime.now(timezone.utc) - updated_at
+            age = datetime.now(UTC) - updated_at
         except (TypeError, ValueError):
             return False
         return age <= _CACHE_FRESHNESS
 
     def _mark_cache_updated(self, cache: dict[str, Any], key: str) -> None:
-        cache["updated_at"][key] = datetime.now(timezone.utc).isoformat()
+        cache["updated_at"][key] = datetime.now(UTC).isoformat()
 
     def _request_graphql(
         self,
@@ -107,16 +128,17 @@ class _GitHubClient:
         _logger.info("Fetching %s from GitHub.", operation)
         started = monotonic()
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603
                 command,
                 capture_output=True,
                 check=False,
+                encoding="utf8",
                 input=payload,
                 text=True,
             )
         except FileNotFoundError as error:
             raise RuntimeError(
-                "GitHub CLI (`gh`) is required. Install it and run `gh auth login`."
+                "GitHub CLI (`gh`) is required. Install it and run `gh auth login`.",
             ) from error
         except OSError as error:
             raise RuntimeError(f"Could not run GitHub CLI: {error}") from error
@@ -126,30 +148,18 @@ class _GitHubClient:
         except json.JSONDecodeError:
             decoded = None
 
-        partial_response = (
-            allow_partial
-            and isinstance(decoded, dict)
-            and isinstance(decoded.get("data"), dict)
-        )
+        partial_response = allow_partial and isinstance(decoded, dict) and isinstance(decoded.get("data"), dict)
         if result.returncode and not partial_response:
-            details = (
-                result.stderr.strip()
-                or result.stdout.strip()
-                or "no error details provided"
-            )
+            details = result.stderr.strip() or result.stdout.strip() or "no error details provided"
             raise RuntimeError(f"GitHub CLI GraphQL request failed: {details}")
         if not isinstance(decoded, dict):
-            raise RuntimeError(
-                "GitHub CLI returned invalid JSON or a malformed response."
+            # Report malformed GitHub responses through the CLI's runtime error handler.
+            raise RuntimeError(  # noqa: TRY004
+                "GitHub CLI returned invalid JSON or a malformed response.",
             )
         errors = decoded.get("errors")
         if isinstance(errors, list) and errors:
-            messages = [
-                str(error.get("message", error))
-                if isinstance(error, dict)
-                else str(error)
-                for error in errors
-            ]
+            messages = [str(error.get("message", error)) if isinstance(error, dict) else str(error) for error in errors]
             if not allow_partial:
                 raise RuntimeError("GitHub GraphQL error: " + "; ".join(messages))
             _logger.warning(
@@ -161,7 +171,11 @@ class _GitHubClient:
         return decoded
 
     def _report_progress(
-        self, operation: str, *, completed: int, total: int | None
+        self,
+        operation: str,
+        *,
+        completed: int,
+        total: int | None,
     ) -> None:
         if self._progress_callback:
             self._progress_callback(operation, completed, total)
@@ -184,11 +198,7 @@ class _GitHubClient:
                 if isinstance(node, dict) and _is_public_activity_node(connection, node)
             }
         cache["commit_years"] = {
-            year: [
-                record
-                for record in records
-                if isinstance(record, dict) and record.get("isPrivate") is False
-            ]
+            year: [record for record in records if isinstance(record, dict) and record.get("isPrivate") is False]
             for year, records in cache["commit_years"].items()
             if isinstance(records, list)
         }
@@ -220,7 +230,9 @@ class _GitHubClient:
         user: str,
         cache: dict[str, Any],
     ) -> tuple[
-        dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]
+        dict[str, dict[str, Any]],
+        dict[str, dict[str, Any]],
+        dict[str, dict[str, Any]],
     ]:
         query = """
 query UserActivity(
@@ -279,14 +291,12 @@ query UserActivity(
             "pullRequests": {
                 key: node
                 for key, node in cache["pull_requests"].items()
-                if isinstance(node, dict)
-                and _is_public_activity_node("pullRequests", node)
+                if isinstance(node, dict) and _is_public_activity_node("pullRequests", node)
             },
             "issueComments": {
                 key: node
                 for key, node in cache["comments"].items()
-                if isinstance(node, dict)
-                and _is_public_activity_node("issueComments", node)
+                if isinstance(node, dict) and _is_public_activity_node("issueComments", node)
             },
         }
         cache_keys = {
@@ -304,13 +314,12 @@ query UserActivity(
             "pullRequests": ("prsCursor", "includePrs"),
             "issueComments": ("commentsCursor", "includeComments"),
         }
-        active = {name: True for name in items}
-        cursors: dict[str, str | None] = {name: None for name in items}
-        pages = {name: 0 for name in items}
-        totals: dict[str, int | None] = {name: None for name in items}
+        active = dict.fromkeys(items, True)
+        cursors: dict[str, str | None] = dict.fromkeys(items)
+        pages = dict.fromkeys(items, 0)
+        totals: dict[str, int | None] = dict.fromkeys(items)
         history_complete = {
-            name: bool(cache["complete"].get(cache_key, False))
-            for name, cache_key in cache_keys.items()
+            name: bool(cache["complete"].get(cache_key, False)) for name, cache_key in cache_keys.items()
         }
         request_count = 0
 
@@ -321,7 +330,9 @@ query UserActivity(
                 variables[include_variable] = active[name]
                 if active[name]:
                     self._report_progress(
-                        labels[name], completed=pages[name], total=totals[name]
+                        labels[name],
+                        completed=pages[name],
+                        total=totals[name],
                     )
 
             response = self._request_graphql(
@@ -333,13 +344,14 @@ query UserActivity(
             data = response.get("data")
             account = data.get("user") if isinstance(data, dict) else None
             if not isinstance(account, dict):
-                raise RuntimeError(
-                    f"GitHub user {user!r} was not found or is unavailable."
+                # A missing GitHub user is a request failure, not a caller type error.
+                raise RuntimeError(  # noqa: TRY004
+                    f"GitHub user {user!r} was not found or is unavailable.",
                 )
             if isinstance(account.get("id"), str):
                 cache["user_id"] = account["id"]
 
-            for name in items:
+            for name, connection_items in items.items():
                 if not active[name]:
                     continue
                 connection = account.get(name)
@@ -349,14 +361,8 @@ query UserActivity(
                 if isinstance(connection.get("totalCount"), int):
                     totals[name] = max(1, ceil(connection["totalCount"] / 100))
                 nodes = connection.get("nodes")
-                page_nodes = (
-                    [node for node in nodes if isinstance(node, dict)]
-                    if isinstance(nodes, list)
-                    else []
-                )
-                public_nodes = [
-                    node for node in page_nodes if _is_public_activity_node(name, node)
-                ]
+                page_nodes = [node for node in nodes if isinstance(node, dict)] if isinstance(nodes, list) else []
+                public_nodes = [node for node in page_nodes if _is_public_activity_node(name, node)]
                 private_count = len(page_nodes) - len(public_nodes)
                 if private_count:
                     _logger.info(
@@ -369,34 +375,36 @@ query UserActivity(
                     node_id = node.get("id")
                     if not isinstance(node_id, str):
                         continue
-                    if node_id not in items[name]:
+                    if node_id not in connection_items:
                         new_items += 1
-                    items[name][node_id] = node
+                    connection_items[node_id] = node
                 pages[name] += 1
                 self._report_progress(
-                    labels[name], completed=pages[name], total=totals[name]
+                    labels[name],
+                    completed=pages[name],
+                    total=totals[name],
                 )
 
                 page_info = connection.get("pageInfo")
                 has_next = isinstance(page_info, dict) and bool(
-                    page_info.get("hasNextPage")
+                    page_info.get("hasNextPage"),
                 )
-                reached_cache = (
-                    history_complete[name] and bool(public_nodes) and new_items == 0
-                )
-                cursor = (
-                    page_info.get("endCursor") if isinstance(page_info, dict) else None
-                )
+                reached_cache = history_complete[name] and bool(public_nodes) and new_items == 0
+                cursor = page_info.get("endCursor") if isinstance(page_info, dict) else None
                 if not has_next or reached_cache:
                     active[name] = False
                     cache["complete"][cache_keys[name]] = True
                     self._report_progress(
-                        labels[name], completed=pages[name], total=pages[name]
+                        labels[name],
+                        completed=pages[name],
+                        total=pages[name],
                     )
                 elif not isinstance(cursor, str) or not cursor:
                     active[name] = False
                     self._report_progress(
-                        labels[name], completed=pages[name], total=pages[name]
+                        labels[name],
+                        completed=pages[name],
+                        total=pages[name],
                     )
                 else:
                     cursors[name] = cursor
@@ -414,7 +422,7 @@ query UserActivity(
         issues: dict[str, dict[str, Any]],
         pull_requests: dict[str, dict[str, Any]],
     ) -> None:
-        recent_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        recent_cutoff = datetime.now(UTC) - timedelta(days=30)
 
         def mutable(node: dict[str, Any]) -> bool:
             closed_at = node.get("closedAt")
@@ -429,9 +437,7 @@ query UserActivity(
 
         mutable_ids = [node_id for node_id, node in issues.items() if mutable(node)]
         mutable_ids.extend(
-            node_id
-            for node_id, node in pull_requests.items()
-            if node.get("merged") is not True and mutable(node)
+            node_id for node_id, node in pull_requests.items() if node.get("merged") is not True and mutable(node)
         )
         if not mutable_ids:
             return
@@ -456,7 +462,8 @@ query RefreshOpenItems($ids: [ID!]!) {
                 continue
             for update in nodes:
                 if not isinstance(update, dict) or not isinstance(
-                    update.get("id"), str
+                    update.get("id"),
+                    str,
                 ):
                     continue
                 node_id = update["id"]
@@ -482,21 +489,9 @@ query ContributionYears($login: String!) {
         )
         data = response.get("data")
         account = data.get("user") if isinstance(data, dict) else None
-        collection = (
-            account.get("contributionsCollection")
-            if isinstance(account, dict)
-            else None
-        )
-        raw_years = (
-            collection.get("contributionYears")
-            if isinstance(collection, dict)
-            else None
-        )
-        years = (
-            [year for year in raw_years if isinstance(year, int)]
-            if isinstance(raw_years, list)
-            else []
-        )
+        collection = account.get("contributionsCollection") if isinstance(account, dict) else None
+        raw_years = collection.get("contributionYears") if isinstance(collection, dict) else None
+        years = [year for year in raw_years if isinstance(year, int)] if isinstance(raw_years, list) else []
 
         query = """
 query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
@@ -516,7 +511,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
   }
 }
 """
-        current_year = datetime.now(timezone.utc).year
+        current_year = datetime.now(UTC).year
         result = dict(cached_years)
         for year in sorted(years):
             key = str(year)
@@ -531,44 +526,26 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
             )
             data = response.get("data")
             account = data.get("user") if isinstance(data, dict) else None
-            collection = (
-                account.get("contributionsCollection")
-                if isinstance(account, dict)
-                else None
-            )
-            groups = (
-                collection.get("commitContributionsByRepository")
-                if isinstance(collection, dict)
-                else None
-            )
+            collection = account.get("contributionsCollection") if isinstance(account, dict) else None
+            groups = collection.get("commitContributionsByRepository") if isinstance(collection, dict) else None
             records: dict[str, dict[str, Any]] = {}
             if isinstance(groups, list):
                 for group in groups:
                     if not isinstance(group, dict):
                         continue
                     repository = group.get("repository")
-                    repository_name = (
-                        repository.get("nameWithOwner")
-                        if isinstance(repository, dict)
-                        else None
-                    )
-                    if (
-                        not isinstance(repository_name, str)
-                        or repository.get("isPrivate") is not False
-                    ):
+                    repository_name = repository.get("nameWithOwner") if isinstance(repository, dict) else None
+                    if not isinstance(repository_name, str) or repository.get("isPrivate") is not False:
                         continue
                     for connection_name in ("early", "recent"):
                         connection = group.get(connection_name)
-                        nodes = (
-                            connection.get("nodes")
-                            if isinstance(connection, dict)
-                            else None
-                        )
+                        nodes = connection.get("nodes") if isinstance(connection, dict) else None
                         if not isinstance(nodes, list):
                             continue
                         for node in nodes:
                             if not isinstance(node, dict) or not isinstance(
-                                node.get("occurredAt"), str
+                                node.get("occurredAt"),
+                                str,
                             ):
                                 continue
                             record = {
@@ -578,18 +555,11 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                             }
                             records[f"{repository_name}:{node['occurredAt']}"] = record
                     early = group.get("early")
-                    total_count = (
-                        early.get("totalCount") if isinstance(early, dict) else None
-                    )
+                    total_count = early.get("totalCount") if isinstance(early, dict) else None
                     repository_records = sum(
-                        1
-                        for record in records.values()
-                        if record["repository"] == repository_name
+                        1 for record in records.values() if record["repository"] == repository_name
                     )
-                    if (
-                        isinstance(total_count, int)
-                        and total_count > repository_records
-                    ):
+                    if isinstance(total_count, int) and total_count > repository_records:
                         _logger.warning(
                             "GitHub truncated commit-day history for %s in %s (%s of %s days).",
                             repository_name,
@@ -601,18 +571,15 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
         return result
 
     def _commit_repositories(
-        self, commit_years: dict[str, list[dict[str, Any]]]
+        self,
+        commit_years: dict[str, list[dict[str, Any]]],
     ) -> list[str]:
         totals: dict[str, int] = {}
         for records in commit_years.values():
             for record in records:
                 repository = record.get("repository")
                 count = record.get("commitCount")
-                if (
-                    isinstance(repository, str)
-                    and isinstance(count, int)
-                    and record.get("isPrivate") is False
-                ):
+                if isinstance(repository, str) and isinstance(count, int) and record.get("isPrivate") is False:
                     totals[repository] = totals.get(repository, 0) + count
         return sorted(totals, key=lambda name: (-totals[name], name))
 
@@ -633,21 +600,15 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
             for index, repository in enumerate(batch):
                 owner, name = repository.split("/", 1)
                 definitions.extend(
-                    (f"$owner{index}: String!", f"$name{index}: String!")
+                    (f"$owner{index}: String!", f"$name{index}: String!"),
                 )
                 variables[f"owner{index}"] = owner
                 variables[f"name{index}"] = name
                 fields.append(
                     f"r{index}: repository(owner: $owner{index}, name: $name{index}) "
-                    "{ nameWithOwner isPrivate defaultBranchRef { name } }"
+                    "{ nameWithOwner isPrivate defaultBranchRef { name } }",
                 )
-            query = (
-                "query RepositoryMetadata("
-                + ", ".join(definitions)
-                + ") { "
-                + " ".join(fields)
-                + " }"
-            )
+            query = "query RepositoryMetadata(" + ", ".join(definitions) + ") { " + " ".join(fields) + " }"
             response = self._request_graphql(
                 query,
                 variables=variables,
@@ -659,15 +620,11 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                 continue
             for index, repository in enumerate(batch):
                 repository_data = data.get(f"r{index}")
-                if (
-                    isinstance(repository_data, dict)
-                    and repository_data.get("isPrivate") is False
-                ):
+                if isinstance(repository_data, dict) and repository_data.get("isPrivate") is False:
                     default_ref = repository_data.get("defaultBranchRef")
                     default_branch = (
                         default_ref.get("name")
-                        if isinstance(default_ref, dict)
-                        and isinstance(default_ref.get("name"), str)
+                        if isinstance(default_ref, dict) and isinstance(default_ref.get("name"), str)
                         else None
                     )
                     canonical_name = repository_data.get("nameWithOwner")
@@ -681,9 +638,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                     }
                     existing_local_state = existing.get("local_repositories")
                     if isinstance(existing_local_state, dict):
-                        cache["local_repositories"][canonical_name] = (
-                            existing_local_state
-                        )
+                        cache["local_repositories"][canonical_name] = existing_local_state
                     existing_commits = existing.get("commit_summaries")
                     if isinstance(existing_commits, dict):
                         cache["commit_summaries"][canonical_name] = existing_commits
@@ -728,12 +683,10 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
         operation = f"commit summaries from {len(repositories)} public repositories"
         requests = 0
         for batch_offset in range(0, len(repositories), _COMMIT_REPOSITORY_BATCH_SIZE):
-            batch = repositories[
-                batch_offset : batch_offset + _COMMIT_REPOSITORY_BATCH_SIZE
-            ]
+            batch = repositories[batch_offset : batch_offset + _COMMIT_REPOSITORY_BATCH_SIZE]
             active = set(batch)
-            cursors: dict[str, str | None] = {repository: None for repository in batch}
-            pages = {repository: 0 for repository in batch}
+            cursors: dict[str, str | None] = dict.fromkeys(batch)
+            pages = dict.fromkeys(batch, 0)
             had_cache = {repository: bool(result[repository]) for repository in batch}
             while active:
                 current = [repository for repository in batch if repository in active]
@@ -747,7 +700,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                             f"$owner{index}: String!",
                             f"$name{index}: String!",
                             f"$after{index}: String",
-                        )
+                        ),
                     )
                     variables[f"owner{index}"] = owner
                     variables[f"name{index}"] = name
@@ -767,15 +720,9 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
       }}
     }}
   }}
-"""
+""",
                     )
-                query = (
-                    "query CommitSummaries("
-                    + ", ".join(definitions)
-                    + ") {\n"
-                    + "".join(fields)
-                    + "}\n"
-                )
+                query = "query CommitSummaries(" + ", ".join(definitions) + ") {\n" + "".join(fields) + "}\n"
                 self._report_progress(operation, completed=requests, total=None)
                 response = self._request_graphql(
                     query,
@@ -789,27 +736,18 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                     break
                 for index, repository in enumerate(current):
                     repository_data = data.get(f"r{index}")
-                    if (
-                        not isinstance(repository_data, dict)
-                        or repository_data.get("isPrivate") is not False
-                    ):
+                    if not isinstance(repository_data, dict) or repository_data.get("isPrivate") is not False:
                         result.pop(repository, None)
                         active.discard(repository)
                         continue
                     branch = repository_data.get("defaultBranchRef")
                     target = branch.get("target") if isinstance(branch, dict) else None
-                    history = (
-                        target.get("history") if isinstance(target, dict) else None
-                    )
+                    history = target.get("history") if isinstance(target, dict) else None
                     if not isinstance(history, dict):
                         active.discard(repository)
                         continue
                     nodes = history.get("nodes")
-                    page_nodes = (
-                        [node for node in nodes if isinstance(node, dict)]
-                        if isinstance(nodes, list)
-                        else []
-                    )
+                    page_nodes = [node for node in nodes if isinstance(node, dict)] if isinstance(nodes, list) else []
                     reached_cache = False
                     for node in page_nodes:
                         oid = node.get("oid")
@@ -817,10 +755,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                         committed_at = node.get("committedDate")
                         url = node.get("url")
                         parents = node.get("parents")
-                        if not all(
-                            isinstance(value, str)
-                            for value in (oid, headline, committed_at, url)
-                        ):
+                        if not all(isinstance(value, str) for value in (oid, headline, committed_at, url)):
                             continue
                         if oid in result[repository]:
                             reached_cache = True
@@ -835,27 +770,18 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                             "historyComplete": False,
                             "isMerge": (
                                 parents.get("totalCount", 0) > 1
-                                if isinstance(parents, dict)
-                                and isinstance(parents.get("totalCount"), int)
+                                if isinstance(parents, dict) and isinstance(parents.get("totalCount"), int)
                                 else None
                             ),
                         }
                     pages[repository] += 1
                     page_info = history.get("pageInfo")
                     has_next = isinstance(page_info, dict) and bool(
-                        page_info.get("hasNextPage")
+                        page_info.get("hasNextPage"),
                     )
-                    cursor = (
-                        page_info.get("endCursor")
-                        if isinstance(page_info, dict)
-                        else None
-                    )
-                    initial_sample_complete = (
-                        not had_cache[repository] and pages[repository] >= 1
-                    )
-                    incremental_limit = (
-                        pages[repository] >= _MAX_INCREMENTAL_COMMIT_PAGES
-                    )
+                    cursor = page_info.get("endCursor") if isinstance(page_info, dict) else None
+                    initial_sample_complete = not had_cache[repository] and pages[repository] >= 1
+                    incremental_limit = pages[repository] >= _MAX_INCREMENTAL_COMMIT_PAGES
                     if (
                         not has_next
                         or reached_cache
@@ -943,7 +869,8 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
             comments = cache["comments"]
         else:
             issues, pull_requests, comments = self._collect_core_activity(
-                user=user, cache=cache
+                user=user,
+                cache=cache,
             )
             cache.update(
                 issues=issues,
@@ -1021,10 +948,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                 matched_repositories,
                 cache=cache,
             )
-            default_branches = {
-                canonical_name: default_branch
-                for canonical_name, default_branch in public_metadata.values()
-            }
+            default_branches = dict(public_metadata.values())
             remotes_by_path: dict[Path, _LocalRemote] = {}
             for remote in local_remotes:
                 metadata = public_metadata.get(remote.repository)
@@ -1052,14 +976,9 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
             self._checkpoint_cache(cache)
 
         commit_repositories = [
-            repository
-            for repository in scoped_commit_repositories
-            if repository not in local_repositories
+            repository for repository in scoped_commit_repositories if repository not in local_repositories
         ][:_MAX_COMMIT_REPOSITORIES]
-        summaries_cached = all(
-            repository in cache["commit_summaries"]
-            for repository in commit_repositories
-        )
+        summaries_cached = all(repository in cache["commit_summaries"] for repository in commit_repositories)
         if self._cache_is_fresh(cache, "commit_summaries") and summaries_cached:
             _logger.info("Using recently cached public commit summaries.")
             github_records = {
@@ -1094,13 +1013,9 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
         def metadata(node: dict[str, Any]) -> dict[str, Any]:
             author = node.get("author")
             return {
-                "title": node.get("title")
-                if isinstance(node.get("title"), str)
-                else None,
+                "title": node.get("title") if isinstance(node.get("title"), str) else None,
                 "url": node.get("url") if isinstance(node.get("url"), str) else None,
-                "number": node.get("number")
-                if isinstance(node.get("number"), int)
-                else None,
+                "number": node.get("number") if isinstance(node.get("number"), int) else None,
                 "subject_author": author.get("login")
                 if isinstance(author, dict) and isinstance(author.get("login"), str)
                 else None,
@@ -1108,11 +1023,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
 
         for issue in issues.values():
             repository = issue.get("repository")
-            repository_name = (
-                repository.get("nameWithOwner")
-                if isinstance(repository, dict)
-                else None
-            )
+            repository_name = repository.get("nameWithOwner") if isinstance(repository, dict) else None
             if not isinstance(repository_name, str) or not in_scope(repository_name):
                 continue
             if isinstance(issue.get("createdAt"), str):
@@ -1123,7 +1034,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                         repository=repository_name,
                         subject_type="issue",
                         **metadata(issue),
-                    )
+                    ),
                 )
             if isinstance(issue.get("closedAt"), str):
                 events.append(
@@ -1133,16 +1044,12 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                         repository=repository_name,
                         subject_type="issue",
                         **metadata(issue),
-                    )
+                    ),
                 )
 
         for pr in pull_requests.values():
             repository = pr.get("repository")
-            repository_name = (
-                repository.get("nameWithOwner")
-                if isinstance(repository, dict)
-                else None
-            )
+            repository_name = repository.get("nameWithOwner") if isinstance(repository, dict) else None
             if not isinstance(repository_name, str) or not in_scope(repository_name):
                 continue
             if isinstance(pr.get("createdAt"), str):
@@ -1153,7 +1060,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                         repository=repository_name,
                         subject_type="pull_request",
                         **metadata(pr),
-                    )
+                    ),
                 )
             if pr.get("merged") is True and isinstance(pr.get("mergedAt"), str):
                 events.append(
@@ -1163,7 +1070,7 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                         repository=repository_name,
                         subject_type="pull_request",
                         **metadata(pr),
-                    )
+                    ),
                 )
             elif pr.get("state") == "CLOSED" and isinstance(pr.get("closedAt"), str):
                 events.append(
@@ -1173,21 +1080,15 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                         repository=repository_name,
                         subject_type="pull_request",
                         **metadata(pr),
-                    )
+                    ),
                 )
 
         for comment in comments.values():
             pull_request = comment.get("pullRequest")
             issue = comment.get("issue")
             subject = pull_request if isinstance(pull_request, dict) else issue
-            repository = (
-                subject.get("repository") if isinstance(subject, dict) else None
-            )
-            repository_name = (
-                repository.get("nameWithOwner")
-                if isinstance(repository, dict)
-                else None
-            )
+            repository = subject.get("repository") if isinstance(subject, dict) else None
+            repository_name = repository.get("nameWithOwner") if isinstance(repository, dict) else None
             if (
                 isinstance(repository_name, str)
                 and in_scope(repository_name)
@@ -1199,19 +1100,15 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                         category="comments",
                         occurred_at=_parse_datetime(comment["createdAt"]),
                         repository=repository_name,
-                        subject_type=(
-                            "pull_request"
-                            if isinstance(pull_request, dict)
-                            else "issue"
-                        ),
+                        subject_type=("pull_request" if isinstance(pull_request, dict) else "issue"),
                         **metadata(subject),
-                    )
+                    ),
                 )
 
         for records in commit_years.values():
             for record in records:
                 if not isinstance(record, dict) or not in_scope(
-                    record.get("repository")
+                    record.get("repository"),
                 ):
                     continue
                 occurred_at = record.get("occurredAt")
@@ -1227,15 +1124,13 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                             title=f"Commits in {repository}",
                             url=f"https://github.com/{repository}",
                             subject_type="repository",
-                        )
+                        ),
                     )
 
         _logger.info(
             "Activity totals: %s",
             {
-                category: sum(
-                    event.count for event in events if event.category == category
-                )
+                category: sum(event.count for event in events if event.category == category)
                 for category in sorted({event.category for event in events})
             },
         )
@@ -1260,18 +1155,10 @@ query CommitContributions($login: String!, $from: DateTime!, $to: DateTime!) {
                             committed_at=_parse_datetime(committed_at),
                             repository=repository,
                             url=url,
-                            source=(
-                                record["source"]
-                                if record.get("source") in {"github", "local"}
-                                else "github"
-                            ),
+                            source=(record["source"] if record.get("source") in {"github", "local"} else "github"),
                             history_complete=record.get("historyComplete") is True,
-                            is_merge=(
-                                record["isMerge"]
-                                if isinstance(record.get("isMerge"), bool)
-                                else None
-                            ),
-                        )
+                            is_merge=(record["isMerge"] if isinstance(record.get("isMerge"), bool) else None),
+                        ),
                     )
         _logger.info("Analyzing %s cached commit summaries.", len(commit_summaries))
         return _CollectedActivity(events=events, commits=commit_summaries)

@@ -1,8 +1,26 @@
+# SPDX-License-Identifier: ISC
+#
+# ISC License
+#
+# Copyright (c) 2026, Timothée Mazzucotelli and contributors
+#
+# Permission to use, copy, modify, and/or distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 """Tests for commit-summary classification and insights."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -27,7 +45,7 @@ def _commit(
     return _CommitSummary(
         oid=oid,
         headline=headline,
-        committed_at=datetime(year, 1, day, tzinfo=timezone.utc),
+        committed_at=datetime(year, 1, day, tzinfo=UTC),
         repository=repository,
         url=f"https://github.com/{repository}/commit/{oid}",
         source=source,
@@ -64,9 +82,7 @@ def test_classify_commit(
 
 def test_analyze_commits_builds_all_dashboard_views() -> None:
     """One local pass derives the complete commit-analysis dashboard model."""
-    commits = [
-        _commit(f"feat(parser): add capability {day}", day=day) for day in range(1, 11)
-    ]
+    commits = [_commit(f"feat(parser): add capability {day}", day=day) for day in range(1, 11)]
     commits.extend(
         [
             _commit("fix(cli): handle failure", day=11),
@@ -85,7 +101,7 @@ def test_analyze_commits_builds_all_dashboard_views() -> None:
                 repository="someone/community",
             ),
             _commit("A summary without a prefix", day=14),
-        ]
+        ],
     )
 
     analysis = _analyze_commits(commits)
